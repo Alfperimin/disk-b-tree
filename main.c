@@ -50,6 +50,10 @@ void removeFromInternal(BTree *bt, Node *node, int idx);
 void removeFromNode(BTree *bt, Node *node, int key);
 void removeKey(BTree *bt, int key);
 
+void freeNode(Node *node);
+void freeBTree(BTree *bt);
+
+
 /**
  * Funções de manipulação dos arquivos
  */
@@ -512,6 +516,30 @@ void printBTree(BTree *bt)
 }
 
 /**
+ * Funções de liberação de memória
+ */
+
+void freeNode(Node *node){
+    if (node == NULL) return;
+
+    if (!node->leaf) {
+        for (int i = 0; i <= node->n; i++)
+            freeNode(node->children[i]);
+    }
+
+    free(node->keys);
+    free(node->children);
+    free(node);
+}
+
+void freeBTree(BTree *bt){
+    if (bt == NULL) return;
+    freeNode(bt->root);
+    bt->root = NULL;
+    bt->t = 0;
+}
+
+/**
  * Função main e menus
  */
 
@@ -692,5 +720,6 @@ int main(void) {
         printf("\n");
     } while (op != 0);
 
+    freeBTree(&bt);
     return 0;
 }
