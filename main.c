@@ -5,6 +5,9 @@
 #include <time.h>
 #include <errno.h>
 
+#define META_FILE  "bin/tree.meta"
+#define META_MAGIC 0x42545245
+
 long nextId = 1;
 
 /**
@@ -37,10 +40,12 @@ int initialize(BTree *bt, int t) {
  */
 
 char *copyString(const char *str);
-void freeLoadedNode(Node *node, int t);
 char* nominate();
 int diskWrite(Node *node, int t);
 Node* diskRead(const char *filename, int t);
+int saveMeta(const BTree *bt);
+int loadMeta(BTree *bt);
+int startTree(BTree *bt);
 
 int splitNode(BTree *bt, Node *dad, int i);
 Node* createNode(int t, int leaf);
@@ -65,6 +70,7 @@ void nodeString(Node *node, char *buffer);
 void printSpaces(int n);
 void printBTree(BTree *bt);
 
+void freeLoadedNode(Node *node, int t);
 void freeBTree(BTree *bt);
 
 /**
@@ -79,18 +85,6 @@ char *copyString(const char *str){
 
     strcpy(copy, str);
     return copy;
-}
-
-void freeLoadedNode(Node *node, int t){
-    if(node == NULL) return;
-
-    for(int i = 0; i < 2 * t; i++)
-        free(node->children[i]);
-
-    free(node->children);
-    free(node->keys);
-    free(node->filename);
-    free(node);
 }
 
 char* nominate(){
@@ -110,10 +104,20 @@ char* nominate(){
 int diskWrite(Node *node, int t){
     if(node == NULL || node->filename == NULL) return 0;
 
-    FILE *file = fopen(node->filename, "wb");
+    size_t flen = strlen(node->filename);
+    char *temporary = malloc(flen + 5);
+    if(temporary == NULL) return 0;
 
-    if(file == NULL) return 0;
+    sprintf(temporary, "%s.tmp", node->filename);
 
+    FILE *file = fopen(temporary, "wb");
+
+    if(file == NULL){
+        free(temporary);
+        return 0;
+    }
+
+    size_t nkeys = 2 * (size_t) t - 1;
     int ok = 1;
 
     if(fwrite(&node->n, sizeof(int), 1, file) != 1)
@@ -122,10 +126,10 @@ int diskWrite(Node *node, int t){
     if(ok && fwrite(&node->leaf, sizeof(int), 1, file) != 1)
         ok = 0;
 
-    if (ok && fwrite(node->keys, sizeof(int), 2 * t - 1, file) != 2 * t - 1)
+    if(ok && fwrite(node->keys, sizeof(int), nkeys, file) != nkeys)
         ok = 0;
-    
-    for(int i = 0; ok && i < 2*t; i++){
+
+    for(int i = 0; ok && i < 2 * t; i++){
         int exists = node->children[i] != NULL;
 
         if(fwrite(&exists, sizeof(int), 1, file) != 1){
@@ -137,7 +141,7 @@ int diskWrite(Node *node, int t){
             size_t len = strlen(node->children[i]) + 1;
 
             if(fwrite(&len, sizeof(size_t), 1, file) != 1 ||
-                fwrite(node->children[i], sizeof(char), len, file) != len){
+               fwrite(node->children[i], sizeof(char), len, file) != len){
                 ok = 0;
             }
         }
@@ -146,6 +150,13 @@ int diskWrite(Node *node, int t){
     if(fclose(file) != 0)
         ok = 0;
 
+    if(ok && rename(temporary, node->filename) != 0)
+        ok = 0;
+
+    if(!ok)
+        remove(temporary);
+
+    free(temporary);
     return ok;
 }
 
@@ -168,7 +179,6 @@ Node* diskRead(const char *filename, int t){
     node->children = calloc(2 * t, sizeof(char *));
 
     if(node->filename == NULL || node->keys == NULL || node->children == NULL){
-
         free(node->filename);
         free(node->keys);
         free(node->children);
@@ -180,22 +190,40 @@ Node* diskRead(const char *filename, int t){
 
     strcpy(node->filename, filename);
 
+    size_t nkeys = 2 * (size_t) t - 1;
     int ok = 1;
 
     if(fread(&node->n, sizeof(int), 1, file) != 1)
         ok = 0;
 
+    if(ok && (node->n < 0 || node->n > 2 * t - 1))
+        ok = 0;
+
     if(ok && fread(&node->leaf, sizeof(int), 1, file) != 1)
         ok = 0;
 
-    if(ok && fread(node->keys, sizeof(int), 2*t-1, file) != 2*t-1)
+    if(ok && node->leaf != 0 && node->leaf != 1)
         ok = 0;
 
-    for(int i = 0; ok && i < 2*t; i++){
+    if(ok && fread(node->keys, sizeof(int), nkeys, file) != nkeys)
+        ok = 0;
+
+    for(int i = 0; ok && i < 2 * t; i++){
         int exists;
         size_t len;
 
         if(fread(&exists, sizeof(int), 1, file) != 1){
+            ok = 0;
+            break;
+        }
+
+        if(exists != 0 && exists != 1){
+            ok = 0;
+            break;
+        }
+
+        /* folha não tem filhos; nó interno tem exatamente children[0..n] */
+        if(exists != (!node->leaf && i <= node->n)){
             ok = 0;
             break;
         }
@@ -243,6 +271,121 @@ Node* diskRead(const char *filename, int t){
     return node;
 }
 
+int saveMeta(const BTree *bt){
+    if(bt == NULL || bt->t < 2) return 0;
+
+    const char *tmpName = META_FILE ".tmp";
+    FILE *f = fopen(tmpName, "wb");
+
+    if(f == NULL) return 0;
+
+    int magic = META_MAGIC;
+    int t = bt->t;
+    long next = nextId;
+    size_t len = (bt->root != NULL) ? strlen(bt->root) + 1 : 0;
+
+    int ok = 1;
+
+    if(fwrite(&magic, sizeof(int), 1, f) != 1) ok = 0;
+    if(ok && fwrite(&t, sizeof(int), 1, f) != 1) ok = 0;
+    if(ok && fwrite(&next, sizeof(long), 1, f) != 1) ok = 0;
+    if(ok && fwrite(&len, sizeof(size_t), 1, f) != 1) ok = 0;
+    if(ok && len > 0 && fwrite(bt->root, sizeof(char), len, f) != len) ok = 0;
+
+    if(fclose(f) != 0) ok = 0;
+
+    if(ok && rename(tmpName, META_FILE) != 0) ok = 0;
+
+    if(!ok) remove(tmpName);
+
+    return ok;
+}
+
+int loadMeta(BTree *bt){
+    if(bt == NULL) return -1;
+
+    FILE *f = fopen(META_FILE, "rb");
+
+    if(f == NULL) return (errno == ENOENT) ? 0 : -1;
+
+    int magic, t;
+    long next;
+    size_t len;
+    char *root = NULL;
+    int ok = 1;
+
+    if(fread(&magic, sizeof(int), 1, f) != 1 || magic != META_MAGIC) ok = 0;
+    if(ok && (fread(&t, sizeof(int), 1, f) != 1 || t < 2 || t > 1000)) ok = 0;
+    if(ok && (fread(&next, sizeof(long), 1, f) != 1 || next < 1)) ok = 0;
+    if(ok && (fread(&len, sizeof(size_t), 1, f) != 1 || len > 4096)) ok = 0;
+
+    if(ok && len > 0){
+        root = malloc(len);
+
+        if(root == NULL || fread(root, sizeof(char), len, f) != len || root[len - 1] != '\0')
+            ok = 0;
+    }
+
+    fclose(f);
+
+    if(ok && root != NULL){
+        Node *check = diskRead(root, t);
+
+        if(check == NULL) ok = 0;
+        else freeLoadedNode(check, t);
+    }
+
+    if(!ok){
+        free(root);
+        return -1;
+    }
+
+    bt->t = t;
+    bt->root = root;
+    nextId = next;
+
+    return 1;
+}
+
+int startTree(BTree *bt){
+    int r = loadMeta(bt);
+
+    if(r < 0){
+        printf("bin/tree.meta exists but is invalid or points to a missing node.\n");
+        printf("Fix it or delete the bin/ directory to start over.\n");
+        return 0;
+    }
+
+    if(r > 0){
+        printf("B Tree recovered from disk (t = %d).\n", bt->t);
+        return 1;
+    }
+
+    int t = 0;
+
+    while (1) {
+        printf("Define value t of B Tree: ");
+        if (scanf("%d", &t) != 1) {
+            printf("Invalid input\n");
+            int c;
+            while ((c = getchar()) != '\n' && c != EOF);
+            continue;
+        }
+
+        int c;
+        while ((c = getchar()) != '\n' && c != EOF);
+
+        if (!initialize(bt, t)) {
+            printf("Value of t must be between 2 and 1000\n\n");
+            continue;
+        }
+        break;
+    }
+
+    printf("B Tree initialized with t = %d.\n", bt->t);
+    return 1;
+}
+
 /**
  * Funções de inserção da estrutura
  */
@@ -266,6 +409,13 @@ int splitNode(BTree *bt, Node *dad, int i){
         return 0;
     }
 
+    char *newName = copyString(newn->filename);
+    if(newName == NULL){
+        freeLoadedNode(child, t);
+        freeLoadedNode(newn, t);
+        return 0;
+    }
+
     int promoted = child->keys[t - 1];
 
     for(int j = 0; j < t - 1; j++)
@@ -285,13 +435,7 @@ int splitNode(BTree *bt, Node *dad, int i){
     for(int j = dad->n; j > i; j--)
         dad->children[j + 1] = dad->children[j];
 
-    dad->children[i + 1] = copyString(newn->filename);
-
-    if(dad->children[i + 1] == NULL){
-        freeLoadedNode(child, t);
-        freeLoadedNode(newn, t);
-        return 0;
-    }
+    dad->children[i + 1] = newName;
 
     for(int j = dad->n; j > i; j--)
         dad->keys[j] = dad->keys[j - 1];
@@ -299,9 +443,9 @@ int splitNode(BTree *bt, Node *dad, int i){
     dad->keys[i] = promoted;
     dad->n++;
 
-    int ok = diskWrite(child, t);
-    if(ok) ok = diskWrite(newn, t);
+    int ok = diskWrite(newn, t);
     if(ok) ok = diskWrite(dad, t);
+    if(ok) ok = diskWrite(child, t);
 
     freeLoadedNode(child, t);
     freeLoadedNode(newn, t);
@@ -1109,6 +1253,18 @@ void printBTree(BTree *bt)
  * Funções de liberação de memória
  */
 
+void freeLoadedNode(Node *node, int t){
+    if(node == NULL) return;
+
+    for(int i = 0; i < 2 * t; i++)
+        free(node->children[i]);
+
+    free(node->children);
+    free(node->keys);
+    free(node->filename);
+    free(node);
+}
+
 void freeBTree(BTree *bt){
     if (bt == NULL) return;
 
@@ -1251,36 +1407,16 @@ void menuSearch(BTree *bt) {
 
 int main(void) {
     BTree bt;
-    int t = 0;
 
     srand((unsigned) time(NULL));
 
-    /* os nós ficam em bin/node_<id>.bin: o diretório precisa existir */
     if (mkdir("bin", 0755) != 0 && errno != EEXIST) {
         printf("Could not create the bin/ directory\n");
         return 1;
     }
 
-    while (1) {
-        printf("Define value t of B Tree: ");
-        if (scanf("%d", &t) != 1) {
-            printf("Invalid input\n");
-            int c;
-            while ((c = getchar()) != '\n' && c != EOF);
-            continue;
-        }
+    if (!startTree(&bt)) return 1;
 
-        int c;
-        while ((c = getchar()) != '\n' && c != EOF);
-
-        if (!initialize(&bt, t)) {
-            printf("Value of t must be between 2 and 1000\n\n");
-            continue;
-        }
-        break;
-    }
-
-    printf("B Tree initialized with t = %d.\n", bt.t);
     printf("\nPress ENTER to continue ");
     getchar();
 
@@ -1328,8 +1464,14 @@ int main(void) {
                 printf("Invalid option\n");
         }
 
+        if (!saveMeta(&bt))
+            printf("Warning: could not save bin/tree.meta\n");
+
         printf("\n");
     } while (op != 0);
+
+    if (!saveMeta(&bt))
+        printf("Warning: could not save bin/tree.meta\n");
 
     freeBTree(&bt);
     return 0;
