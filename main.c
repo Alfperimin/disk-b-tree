@@ -1,3 +1,10 @@
+// Windows: estas definições precisam vir antes de qualquer #include
+#ifdef _WIN32
+    #define _CRT_SECURE_NO_WARNINGS   // silencia avisos do MSVC sobre strcpy/sprintf/fopen
+    #define WIN32_LEAN_AND_MEAN       // windows.h mais enxuto
+    #define NOMINMAX                  // evita que windows.h defina macros min/max
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,6 +15,7 @@
 #define META_MAGIC 0x42545245
 
 #ifdef _WIN32
+    #include <windows.h>
     #include <direct.h>
     #define MKDIR(p)  _mkdir(p)
     #define CLEAR()   system("cls")
@@ -93,6 +101,34 @@ void freeBTree(BTree *bt);
 /**
  * Funções de manipulação dos arquivos
  */
+
+// substitui o arquivo "to" pelo arquivo "from", retorna 0 em sucesso
+// no Linux o rename já sobrescreve o destino de forma atômica
+// no Windows o rename falha se o destino já existe, então usa MoveFileEx com REPLACE_EXISTING
+// as tentativas repetidas cobrem o caso de antivírus/indexador segurando o arquivo por instantes
+static int replaceFile(const char *from, const char *to){
+#ifdef _WIN32
+    for(int attempt = 0; attempt < 5; attempt++){
+        if(MoveFileExA(from, to, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+            return 0;
+
+        Sleep(20);
+    }
+
+    return -1;
+#else
+    return rename(from, to);
+#endif
+}
+
+// sorteia um valor em [1, max]
+// no Windows RAND_MAX é só 32767, então rand() % max nunca passaria disso
+// aqui junta duas chamadas de 15 bits para ter 30 bits, suficiente para max até ~1 bilhão
+static int randomUpTo(int max){
+    unsigned r = ((unsigned)(rand() & 0x7FFF) << 15) | (unsigned)(rand() & 0x7FFF);
+
+    return (int)(r % (unsigned) max) + 1;
+}
 
  // cria uma copia de uma string
 char *copyString(const char *str){
@@ -203,8 +239,8 @@ int diskWrite(Node *node, int t){
     if(fclose(file) != 0)
         ok = 0;
 
-    // o temporário sibstitui o definitivo
-    if(ok && rename(temporary, node->filename) != 0)
+    // o temporário substitui o definitivo
+    if(ok && replaceFile(temporary, node->filename) != 0)
         ok = 0;
 
     // se algo falhou, apaga o temporario para não deixar erros e bin/
@@ -388,7 +424,7 @@ int saveMeta(const BTree *bt){
     if(fclose(f) != 0) ok = 0;
 
     // troca o metadado antigo pelo novo
-    if(ok && rename(temporary, META_FILE) != 0) ok = 0;
+    if(ok && replaceFile(temporary, META_FILE) != 0) ok = 0;
 
     // se algo falhou, remove o temporario
     if(!ok) remove(temporary);
@@ -481,23 +517,25 @@ int startTree(BTree *bt){
 
     // r = 0, primeira execução, pergunta o t
     int t = 0;
+    int c;
 
     while (1) {
         printf("Define value t of B Tree: ");
 
-        // scanf devolve quantos itens lei, != 1 significa entra não numérica
+        // scanf devolve quantos itens leu, != 1 significa entrada não numérica
         if (scanf("%d", &t) != 1) {
             printf("Invalid input\n");
 
             // descarta o resto da linha para scanf não travar relendo lixo
-            int c;
-                    
+            // (sem isso o laço fica infinito; também trata EOF para não girar para sempre)
+            while ((c = getchar()) != '\n' && c != EOF);
+            if (c == EOF) return 0;
+
             continue;
         }
 
         // entrada válida, descarta o \n que sobrou no buffer
-        int c;
-                
+        while ((c = getchar()) != '\n' && c != EOF);
 
         // initialize valida a faixa, se rejeitar pergunta de novo
         if (!initialize(bt, t)) {
@@ -1618,6 +1656,7 @@ void freeBTree(BTree *bt){
 // menu de inserção: permite inserir N valores aleatórios ou um valor digitado
 void menuInsert(BTree *bt) {
     int op = 0;
+    int c;
 
     printf("1. Insert N values\n");
     printf("2. Insert one value\n");
@@ -1626,7 +1665,6 @@ void menuInsert(BTree *bt) {
     // entrada não numérica: descarta o resto da linha e volta ao menu principal
     if (scanf("%d", &op) != 1) {
         printf("Invalid input\n");
-        int c;
         while ((c = getchar()) != '\n' && c != EOF);
         return;
     }
@@ -1637,8 +1675,7 @@ void menuInsert(BTree *bt) {
         printf("Value of N: ");
         if (scanf("%d", &n) != 1) {
             printf("Invalid input\n");
-            int c;
-        while ((c = getchar()) != '\n' && c != EOF);
+            while ((c = getchar()) != '\n' && c != EOF);
             return;
         }
 
@@ -1646,8 +1683,7 @@ void menuInsert(BTree *bt) {
         printf("Max value of N: ");
         if (scanf("%d", &max) != 1) {
             printf("Invalid input\n");
-            int c;
-        while ((c = getchar()) != '\n' && c != EOF);
+            while ((c = getchar()) != '\n' && c != EOF);
             return;
         }
 
@@ -1659,8 +1695,8 @@ void menuInsert(BTree *bt) {
 
         printf("Entered values: ");
         for (int k = 0; k < n; k++) {
-            // sorteia um valor de 1 a max
-            int num = rand() % max + 1;
+            // sorteia um valor de 1 a max (randomUpTo contorna o RAND_MAX de 32767 do Windows)
+            int num = randomUpTo(max);
             printf("%d ", num);
 
             // para no primeiro erro de disco ou memória, já que continuar só repetiria a falha
@@ -1677,8 +1713,7 @@ void menuInsert(BTree *bt) {
         printf("Value to insert: ");
         if (scanf("%d", &value) != 1) {
             printf("Invalid input\n");
-            int c;
-        while ((c = getchar()) != '\n' && c != EOF);
+            while ((c = getchar()) != '\n' && c != EOF);
             return;
         }
 
@@ -1708,7 +1743,7 @@ void menuRemove(BTree *bt) {
         if (scanf("%d", &value) != 1) {
             printf("Invalid input\n");
             int c;
-        while ((c = getchar()) != '\n' && c != EOF);
+            while ((c = getchar()) != '\n' && c != EOF);
             continue;
         }
 
@@ -1773,6 +1808,11 @@ void menuSearch(BTree *bt) {
 int main(void) {
     // a árvore em si fica só em disco, aqui só guardamos o nome da raiz e o t
     BTree bt;
+
+#ifdef _WIN32
+    // faz o console do Windows exibir UTF-8 (senão "Nível" sai com caracteres quebrados)
+    SetConsoleOutputCP(CP_UTF8);
+#endif
 
     // semente do rand, usada na inserção de N valores aleatórios
     srand((unsigned) time(NULL));
