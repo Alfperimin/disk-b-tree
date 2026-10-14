@@ -491,13 +491,13 @@ int startTree(BTree *bt){
 
             // descarta o resto da linha para scanf não travar relendo lixo
             int c;
-            while ((c = getchar()) != '\n' && c != EOF);
+                    
             continue;
         }
 
         // entrada válida, descarta o \n que sobrou no buffer
         int c;
-        while ((c = getchar()) != '\n' && c != EOF);
+                
 
         // initialize valida a faixa, se rejeitar pergunta de novo
         if (!initialize(bt, t)) {
@@ -1626,7 +1626,8 @@ void menuInsert(BTree *bt) {
     // entrada não numérica: descarta o resto da linha e volta ao menu principal
     if (scanf("%d", &op) != 1) {
         printf("Invalid input\n");
-        while (getchar() != '\n');
+        int c;
+        while ((c = getchar()) != '\n' && c != EOF);
         return;
     }
 
@@ -1636,7 +1637,8 @@ void menuInsert(BTree *bt) {
         printf("Value of N: ");
         if (scanf("%d", &n) != 1) {
             printf("Invalid input\n");
-            while (getchar() != '\n');
+            int c;
+        while ((c = getchar()) != '\n' && c != EOF);
             return;
         }
 
@@ -1644,7 +1646,8 @@ void menuInsert(BTree *bt) {
         printf("Max value of N: ");
         if (scanf("%d", &max) != 1) {
             printf("Invalid input\n");
-            while (getchar() != '\n');
+            int c;
+        while ((c = getchar()) != '\n' && c != EOF);
             return;
         }
 
@@ -1674,7 +1677,8 @@ void menuInsert(BTree *bt) {
         printf("Value to insert: ");
         if (scanf("%d", &value) != 1) {
             printf("Invalid input\n");
-            while (getchar() != '\n');
+            int c;
+        while ((c = getchar()) != '\n' && c != EOF);
             return;
         }
 
@@ -1703,7 +1707,8 @@ void menuRemove(BTree *bt) {
         printf("Value to remove (-1 to exit): ");
         if (scanf("%d", &value) != 1) {
             printf("Invalid input\n");
-            while (getchar() != '\n');
+            int c;
+        while ((c = getchar()) != '\n' && c != EOF);
             continue;
         }
 
@@ -1740,7 +1745,8 @@ void menuSearch(BTree *bt) {
     printf("Value to search: ");
     if (scanf("%d", &value) != 1) {
         printf("Invalid input\n");
-        while (getchar() != '\n');
+        int c;
+        while ((c = getchar()) != '\n' && c != EOF);
         return;
     }
 
