@@ -8,6 +8,17 @@
 #define META_FILE  "bin/tree.meta"
 #define META_MAGIC 0x42545245
 
+#ifdef _WIN32
+    #include <direct.h>
+    #define MKDIR(p)  _mkdir(p)
+    #define CLEAR()   system("cls")
+#else
+    #include <sys/stat.h>
+    #include <sys/types.h>
+    #define MKDIR(p)  mkdir(p, 0755)
+    #define CLEAR()   system("clear")
+#endif
+
 long nextId = 1;
 
 /**
@@ -1763,7 +1774,7 @@ int main(void) {
 
     // cria a pasta bin/ onde ficam os nós e o tree.meta
     // se ela já existir (EEXIST) não é erro, é o caso de uma execução posterior
-    if (mkdir("bin", 0755) != 0 && errno != EEXIST) {
+    if (MKDIR("bin") != 0 && errno != EEXIST) {
         printf("Could not create the bin/ directory\n");
         return 1;
     }
@@ -1773,14 +1784,14 @@ int main(void) {
     if (!startTree(&bt)) return 1;
 
     // pausa para o usuário ler a mensagem de recuperação/inicialização
-    // antes de o system("clear") apagá-la
+    // antes de o CLEAR() apagá-la
     printf("\nPress ENTER to continue ");
     getchar();
 
     int op = 0;
     do {
         // limpa a tela e mostra o menu principal
-        system("clear");
+        CLEAR();
         printf("----- Menu -----\n");
         printf("1. Insert value\n");
         printf("2. Remove value\n");
@@ -1799,19 +1810,19 @@ int main(void) {
         // cada opção limpa a tela e chama o menu correspondente
         switch (op) {
             case 1:
-                system("clear");
+                CLEAR();
                 menuInsert(&bt);
                 break;
             case 2:
-                system("clear");
+                CLEAR();
                 menuRemove(&bt);
                 break;
             case 3:
-                system("clear");
+                CLEAR();
                 menuSearch(&bt);
                 break;
             case 4:
-                system("clear");
+                CLEAR();
                 printBTree(&bt);
                 // dois getchar: o primeiro consome o \n deixado pelo scanf,
                 // o segundo espera o ENTER do usuário
@@ -1821,10 +1832,10 @@ int main(void) {
                 break;
             case 0:
                 // saída: só limpa a tela, o while (op != 0) encerra o laço
-                system("clear");
+                CLEAR();
                 break;
             default:
-                system("clear");
+                CLEAR();
                 printf("Invalid option\n");
         }
 
