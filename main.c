@@ -1,5 +1,4 @@
 #ifdef _WIN32
-    #define _CRT_SECURE_NO_WARNINGS
     #include <windows.h>
     #include <direct.h>
     #define MKDIR(p)  _mkdir(p)
@@ -19,7 +18,6 @@
 #include <time.h>
 
 #define META_FILE  "bin/tree.meta"
-#define META_MAGIC 0x42545245
 #define GAP 2   // espaço mínimo entre subárvores irmãs na impressão
 
 long nextId = 1;
@@ -47,13 +45,6 @@ typedef struct {
 static void die(const char *what){
     perror(what);
     exit(1);
-}
-
-// sorteia um valor em [1, max]
-// RAND_MAX é 32767 no Windows, então junta duas chamadas de 15 bits
-static int randomUpTo(int max){
-    unsigned r = ((unsigned)(rand() & 0x7FFF) << 15) | (unsigned)(rand() & 0x7FFF);
-    return (int)(r % (unsigned) max) + 1;
 }
 
 char *copyString(const char *str){
@@ -172,18 +163,16 @@ Node* diskRead(const char *filename, int t){
     return node;
 }
 
-// formato: [magic][t][nextId][len][nome do arquivo raiz com \0]
+// formato: [t][nextId][len][nome do arquivo raiz com \0]
 void saveMeta(const BTree *bt){
     const char *temporary = META_FILE ".tmp";
     FILE *f = fopen(temporary, "wb");
     if(f == NULL) die(temporary);
 
-    int magic = META_MAGIC;
     long next = nextId;
     size_t len = (bt->root != NULL) ? strlen(bt->root) + 1 : 0;
     int ok = 1;
 
-    ok &= fwrite(&magic, sizeof(int), 1, f) == 1;
     ok &= fwrite(&bt->t, sizeof(int), 1, f) == 1;
     ok &= fwrite(&next, sizeof(long), 1, f) == 1;
     ok &= fwrite(&len, sizeof(size_t), 1, f) == 1;
@@ -198,13 +187,12 @@ int loadMeta(BTree *bt){
     FILE *f = fopen(META_FILE, "rb");
     if(f == NULL) return 0;
 
-    int magic, t;
+    int t;
     long next;
     size_t len;
     char *root = NULL;
 
-    int ok = fread(&magic, sizeof(int), 1, f) == 1 && magic == META_MAGIC;
-    ok = ok && fread(&t, sizeof(int), 1, f) == 1;
+    int ok = fread(&t, sizeof(int), 1, f) == 1;
     ok = ok && fread(&next, sizeof(long), 1, f) == 1;
     ok = ok && fread(&len, sizeof(size_t), 1, f) == 1;
 
@@ -931,7 +919,7 @@ void menuInsert(BTree *bt){
 
         printf("Entered values: ");
         for(int k = 0; k < n; k++){
-            int num = randomUpTo(max);
+            int num = rand() % max + 1;
             printf("%d ", num);
             insert(bt, num);
         }
@@ -1002,10 +990,6 @@ void menuSearch(BTree *bt){
 
 int main(void){
     BTree bt;
-
-#ifdef _WIN32
-    SetConsoleOutputCP(CP_UTF8);   // para "Nível" sair correto no console
-#endif
 
     srand((unsigned) time(NULL));
 
