@@ -120,6 +120,7 @@ void diskWrite(Node *node, int t){
         }
     }
 
+    // erros de escrita em buffer só aparecem no fclose
     ok &= fclose(file) == 0;
 
     if(!ok || REPLACE(temporary, node->filename) != 0) die(node->filename);
@@ -142,6 +143,7 @@ Node* diskRead(const char *filename, int t){
     ok &= fread(&node->leaf, sizeof(int), 1, file) == 1;
     ok &= fread(node->keys, sizeof(int), nkeys, file) == nkeys;
 
+    // para no primeiro erro de leitura, o die só vem depois do fclose
     for(int i = 0; ok && i < 2 * t; i++){
         int exists;
         ok &= fread(&exists, sizeof(int), 1, file) == 1;
@@ -208,6 +210,7 @@ int loadMeta(BTree *bt){
         return -1;
     }
 
+    // bt e nextId só são alterados depois de ler o meta inteiro
     bt->t = t;
     bt->root = root;
     nextId = next;
@@ -319,6 +322,7 @@ void insertNonFull(BTree *bt, const char *filename, int key){
     Node *node = diskRead(filename, t);
     int i = node->n - 1;
 
+    // folha: desloca as chaves maiores para abrir espaço e insere
     if(node->leaf){
         while(i >= 0 && key < node->keys[i]){
             node->keys[i + 1] = node->keys[i];
@@ -333,6 +337,7 @@ void insertNonFull(BTree *bt, const char *filename, int key){
         return;
     }
 
+    // nó interno: escolhe o filho por onde descer
     i = 0;
     while(i < node->n && key > node->keys[i])
         i++;
@@ -341,6 +346,7 @@ void insertNonFull(BTree *bt, const char *filename, int key){
     int childFull = (child->n == 2 * t - 1);
     freeLoadedNode(child, t);
 
+    // divide antes de entrar, a chave promovida pode mudar o lado da descida
     if(childFull){
         splitNode(bt, node, i);
 
@@ -417,6 +423,7 @@ int getPred(BTree *bt, const char *filename){
     int t = bt->t;
     Node *cur = diskRead(filename, t);
 
+    // a maior chave está sempre na folha mais à direita
     while(!cur->leaf){
         char *next = copyString(cur->children[cur->n]);
         freeLoadedNode(cur, t);
@@ -436,6 +443,7 @@ int getSucc(BTree *bt, const char *filename){
     int t = bt->t;
     Node *cur = diskRead(filename, t);
 
+    // a menor chave está sempre na folha mais à esquerda
     while(!cur->leaf){
         char *next = copyString(cur->children[0]);
         freeLoadedNode(cur, t);
@@ -457,6 +465,7 @@ void borrowFromPrev(BTree *bt, Node *node, int idx){
     Node *child = diskRead(node->children[idx], t);
     Node *sibling = diskRead(node->children[idx - 1], t);
 
+    // abre espaço no início do filho
     for(int j = child->n - 1; j >= 0; j--)
         child->keys[j + 1] = child->keys[j];
 
@@ -468,6 +477,7 @@ void borrowFromPrev(BTree *bt, Node *node, int idx){
         sibling->children[sibling->n] = NULL;
     }
 
+    // a chave do pai desce e a última do irmão sobe
     child->keys[0] = node->keys[idx - 1];
     node->keys[idx - 1] = sibling->keys[sibling->n - 1];
 
@@ -488,6 +498,7 @@ void borrowFromNext(BTree *bt, Node *node, int idx){
     Node *child = diskRead(node->children[idx], t);
     Node *sibling = diskRead(node->children[idx + 1], t);
 
+    // a chave do pai desce para o fim do filho e a primeira do irmão sobe
     child->keys[child->n] = node->keys[idx];
 
     if(!child->leaf)
@@ -495,6 +506,7 @@ void borrowFromNext(BTree *bt, Node *node, int idx){
 
     node->keys[idx] = sibling->keys[0];
 
+    // o irmão desloca o que sobrou para a esquerda
     for(int j = 1; j < sibling->n; j++)
         sibling->keys[j - 1] = sibling->keys[j];
 
@@ -523,6 +535,7 @@ void merge(BTree *bt, Node *node, int idx){
     Node *child = diskRead(node->children[idx], t);
     Node *sibling = diskRead(node->children[idx + 1], t);
 
+    // a chave do pai vira a mediana, seguida de tudo do irmão
     child->keys[t - 1] = node->keys[idx];
 
     for(int j = 0; j < sibling->n; j++)
@@ -537,6 +550,7 @@ void merge(BTree *bt, Node *node, int idx){
 
     free(node->children[idx + 1]);
 
+    // fecha o buraco no pai (a chave e o ponteiro do irmão)
     for(int j = idx + 1; j < node->n; j++)
         node->keys[j - 1] = node->keys[j];
 
@@ -560,6 +574,7 @@ void merge(BTree *bt, Node *node, int idx){
 void fill(BTree *bt, Node *node, int idx){
     int t = bt->t;
 
+    // irmão só pode emprestar se ficar com pelo menos t-1 chaves
     if(idx != 0){
         Node *prev = diskRead(node->children[idx - 1], t);
         int enough = (prev->n >= t);
@@ -645,6 +660,7 @@ void removeFromNode(BTree *bt, const char *filename, int key){
     Node *node = diskRead(filename, t);
     int idx = findKeyIndex(node, key);
 
+    // a chave está neste nó
     if(idx < node->n && node->keys[idx] == key){
         if(node->leaf){
             removeFromLeaf(node, idx);
@@ -657,11 +673,13 @@ void removeFromNode(BTree *bt, const char *filename, int key){
         return;
     }
 
+    // chegou na folha sem achar: nada a remover
     if(node->leaf){
         freeLoadedNode(node, t);
         return;
     }
 
+    // a chave só pode estar no filho idx, que precisa ter t chaves antes de entrar
     Node *child = diskRead(node->children[idx], t);
     int needFill = (child->n < t);
     freeLoadedNode(child, t);
@@ -725,6 +743,7 @@ Node* search(BTree *bt, const char *filename, int k){
         return NULL;
     }
 
+    // não está neste nó: desce pelo filho i
     char *childFilename = copyString(node->children[i]);
     freeLoadedNode(node, t);
 
@@ -795,12 +814,14 @@ static LNode* buildLayout(BTree *bt, const char *filename, int level, int *maxLe
 
     freeLoadedNode(node, t);
 
+    // a faixa do nó é a maior entre o próprio texto e a soma dos filhos
     ln->slot = (ln->w > ln->span) ? ln->w : ln->span;
     return ln;
 }
 
 // fase 2: define a coluna de cada nó (de cima para baixo)
 static void placeLayout(LNode *ln, int left){
+    // centraliza o nó na faixa e os filhos sob ele
     ln->x = left + (ln->slot - ln->w) / 2;
 
     int cursor = left + (ln->slot - ln->span) / 2;
@@ -823,6 +844,7 @@ static void drawLayout(LNode *ln, char **grid){
         char ch;
         int col;
 
+        // o conector inclina na direção do filho em relação ao centro do pai
         if(cc < pc){ ch = '/';  col = cc + 1; }
         else if(cc > pc){ ch = '\\'; col = cc - 1; }
         else { ch = '|'; col = cc; }
@@ -917,6 +939,7 @@ void menuInsert(BTree *bt){
             return;
         }
 
+        // valores aleatórios em [1, max], repetidos são aceitos
         printf("Entered values: ");
         for(int k = 0; k < n; k++){
             int num = rand() % max + 1;
@@ -952,6 +975,7 @@ void menuRemove(BTree *bt){
 
         if(value == -1) break;
 
+        // removeKey não avisa se a chave existia, então busca antes
         Node *found = search(bt, bt->root, value);
 
         if(found == NULL){
