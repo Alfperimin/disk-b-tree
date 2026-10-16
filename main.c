@@ -1,3 +1,5 @@
+// Trabalho Prático I - Estruturas de Dados II - Eduardo de Araújo Alexandre
+
 #ifdef _WIN32
     #include <windows.h>
     #include <direct.h>
