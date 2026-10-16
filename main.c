@@ -900,19 +900,33 @@ void printBTree(BTree *bt){
  * Menus
  */
 
-// lê um inteiro, em caso de entrada inválida descarta a linha e retorna 0
-static int readInt(int *value){
-    if(scanf("%d", value) == 1) return 1;
+// vira 1 quando a entrada termina (EOF), para os laços de leitura pararem
+static int inputEnded = 0;
 
-    printf("Invalid input\n");
-    while(getchar() != '\n');
-    return 0;
+// lê um inteiro e descarta o resto da linha, então o ENTER já fica consumido
+// retorna 0 se a entrada for inválida ou se a entrada terminou (inputEnded = 1)
+static int readInt(int *value){
+    int r = scanf("%d", value);
+    int c;
+
+    if(r == EOF){
+        inputEnded = 1;
+        return 0;
+    }
+
+    while((c = getchar()) != '\n' && c != EOF);
+
+    if(r != 1){
+        printf("Invalid input\n");
+        return 0;
+    }
+
+    return 1;
 }
 
-// o primeiro getchar consome o \n deixado pelo scanf, o segundo espera o ENTER
+// como o readInt já consumiu o ENTER da linha, basta esperar um novo
 static void waitEnter(void){
     printf("\nPress ENTER to continue ");
-    getchar();
     getchar();
 }
 
@@ -923,19 +937,20 @@ void menuInsert(BTree *bt){
     printf("2. Insert one value\n");
     printf("\nSelect option: ");
 
-    if(!readInt(&op)) return;
+    if(!readInt(&op)){ waitEnter(); return; }
 
     if(op == 1){
         int n, max;
 
         printf("Value of N: ");
-        if(!readInt(&n)) return;
+        if(!readInt(&n)){ waitEnter(); return; }
 
         printf("Max value of N: ");
-        if(!readInt(&max)) return;
+        if(!readInt(&max)){ waitEnter(); return; }
 
         if(n <= 0 || max <= 0){
             printf("Invalid values\n");
+            waitEnter();
             return;
         }
 
@@ -952,7 +967,7 @@ void menuInsert(BTree *bt){
         int value;
 
         printf("Value to insert: ");
-        if(!readInt(&value)) return;
+        if(!readInt(&value)){ waitEnter(); return; }
 
         insert(bt, value);
 
@@ -971,7 +986,10 @@ void menuRemove(BTree *bt){
         printBTree(bt);
 
         printf("Value to remove (-1 to exit): ");
-        if(!readInt(&value)) continue;
+        if(!readInt(&value)){
+            if(inputEnded) break;
+            continue;
+        }
 
         if(value == -1) break;
 
@@ -994,7 +1012,7 @@ void menuSearch(BTree *bt){
     int value;
 
     printf("Value to search: ");
-    if(!readInt(&value)) return;
+    if(!readInt(&value)){ waitEnter(); return; }
 
     Node *result = search(bt, bt->root, value);
 
